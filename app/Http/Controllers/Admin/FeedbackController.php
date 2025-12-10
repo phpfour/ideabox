@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Admin;
 
 use App\Models\Post;
@@ -14,6 +16,7 @@ use App\Models\PostIntegrationLink;
 use App\Http\Controllers\Controller;
 use App\Models\IntegrationRepository;
 use App\Jobs\SendStatusChangeNotifications;
+use Illuminate\Http\JsonResponse;
 
 class FeedbackController extends Controller
 {
@@ -22,6 +25,7 @@ class FeedbackController extends Controller
         $board = $request->input('board');
         $status = $request->input('status');
         $sort = $request->input('sort') ?? 'voted';
+        $search = $request->input('search');
 
         $boards = Board::select('id', 'name', 'posts', 'slug')->get();
         $statuses = Status::select('id', 'name', 'color')->get();
@@ -32,7 +36,24 @@ class FeedbackController extends Controller
         }
 
         if ($status && $status !== 'all') {
-            $query->where('status_id', $status);
+            if ($status === 'open') {
+                $openStatusIds = Status::query()->inFrontend()->pluck('id');
+                $query->where(function ($q) use ($openStatusIds) {
+                    $q->whereIn('status_id', $openStatusIds)
+                      ->orWhereNull('status_id');
+                });
+            } elseif ($status === 'none') {
+                $query->whereNull('status_id');
+            } else {
+                $query->where('status_id', $status);
+            }
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhere('body', 'like', "%{$search}%");
+            });
         }
 
         if ($sort) {
@@ -216,5 +237,26 @@ class FeedbackController extends Controller
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to generate description'], 500);
         }
+    }
+
+    public function search(Request $request): JsonResponse
+    {
+        $request->validate(['search' => ['string', 'nullable']]);
+        $search = $request->input('search');
+
+        if (empty($search)) {
+            return response()->json([]);
+        }
+
+        $query = Post::query();
+
+        $query->where(function ($q) use ($search) {
+            $q->where('title', 'like', "%{$search}%")
+                ->orWhere('body', 'like', "%{$search}%");
+        });
+
+        $posts = $query->take(10)->get();
+
+        return response()->json($posts);
     }
 }
