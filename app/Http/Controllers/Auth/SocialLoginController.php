@@ -36,7 +36,11 @@ class SocialLoginController extends Controller
         $user = User::query()->where('google_id', $googleUser->getId())->first();
 
         if ($user) {
-            // User exists with Google ID, log them in
+            // Ensure email is verified for existing Google users
+            if (!$user->hasVerifiedEmail()) {
+                $user->markEmailAsVerified();
+            }
+
             Auth::login($user, true);
 
             return redirect()->intended('/');
@@ -46,10 +50,11 @@ class SocialLoginController extends Controller
         $user = User::query()->where('email', $googleUser->getEmail())->first();
 
         if ($user) {
-            // Link Google account to existing user
+            // Link Google account to existing user and mark email as verified
             $user->update([
                 'google_id' => $googleUser->getId(),
                 'avatar_url' => $googleUser->getAvatar(),
+                'email_verified_at' => $user->email_verified_at ?? now(),
             ]);
 
             Auth::login($user, true);
@@ -57,13 +62,14 @@ class SocialLoginController extends Controller
             return redirect()->intended('/');
         }
 
-        // Create new user
+        // Create new user with email already verified (Google verified it)
+        // The Registered event listener checks hasVerifiedEmail() before sending
         $user = User::query()->create([
             'name' => $googleUser->getName(),
             'email' => $googleUser->getEmail(),
             'google_id' => $googleUser->getId(),
             'avatar_url' => $googleUser->getAvatar(),
-            'email_verified_at' => now(), // Google emails are verified
+            'email_verified_at' => now(),
             'role' => User::ROLE_USER,
         ]);
 
